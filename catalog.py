@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Register / unregister a custom video in macOS Sequoia's Aerial catalog (entries.json + Aerial.sqlite).
 
-  catalog.py entries add    --dir DIR --id UUID --name NAME [--category Custom]
+  catalog.py entries add    --dir DIR --id UUID --name NAME [--category Custom] [--slot-key url-4K-SDR-240FPS]
   catalog.py entries remove --dir DIR --id UUID
   catalog.py sql add        --dir DIR --id UUID --name NAME [--category Custom] > out.sql
   catalog.py sql remove     --dir DIR --id UUID                                  > out.sql
@@ -20,7 +20,8 @@ def ids(a):
 def fileurl(a, path):
     return "file://" + quote(a.dir.rstrip("/") + "/" + path, safe="/")
 
-def video_url(a): return fileurl(a, "Customer/4KSDR240FPS/%s.mov" % a.id)
+def slot_dir(a): return a.slot_key[len("url-"):].replace("-", "")     # url-4K-SDR-240FPS -> 4KSDR240FPS
+def video_url(a): return fileurl(a, "Customer/%s/%s.mov" % (slot_dir(a), a.id))
 def prev_url(a):  return fileurl(a, "snapshots/asset-preview-%s.jpg" % a.id)
 
 # ---- entries.json -------------------------------------------------------------------------------------------
@@ -34,7 +35,7 @@ def entries(a):
         c["subcategories"] = [s for s in c.get("subcategories", []) if s["id"] != sub]
     if a.cmd2 == "add":
         asset = {"id": a.id, "shotID": "CUSTOM_" + a.id.replace("-", "_"), "accessibilityLabel": a.name, "localizedNameKey": a.name,
-                 "url-4K-SDR-240FPS": video_url(a), "previewImage": prev_url(a),
+                 a.slot_key: video_url(a), "previewImage": prev_url(a),
                  "pointsOfInterest": {"0": "CUSTOM_%s_0" % a.id.replace("-", "_")},
                  "categories": [cat], "subcategories": [sub], "includeInShuffle": True, "showInTopLevel": True, "preferredOrder": 0}
         d["assets"].append(asset)
@@ -59,7 +60,7 @@ def keyed(objects):
     return plistlib.dumps({"$archiver": "NSKeyedArchiver", "$version": 100000, "$top": {"root": plistlib.UID(1)}, "$objects": objects}, fmt=plistlib.FMT_BINARY)
 
 def remote_urls(a):   # NSMutableDictionary {"4KSDR240FPS": NSURL}
-    return keyed(["$null", {"$class": plistlib.UID(6), "NS.keys": [plistlib.UID(2)], "NS.objects": [plistlib.UID(3)]}, "4KSDR240FPS",
+    return keyed(["$null", {"$class": plistlib.UID(6), "NS.keys": [plistlib.UID(2)], "NS.objects": [plistlib.UID(3)]}, slot_dir(a),
                   {"$class": plistlib.UID(5), "NS.base": plistlib.UID(0), "NS.relative": plistlib.UID(4)}, video_url(a),
                   {"$classes": ["NSURL", "NSObject"], "$classname": "NSURL"},
                   {"$classes": ["NSMutableDictionary", "NSDictionary", "NSObject"], "$classname": "NSMutableDictionary"}])
@@ -106,7 +107,9 @@ p = argparse.ArgumentParser()
 p.add_argument("kind", choices=["entries", "sql"]); p.add_argument("cmd2", choices=["add", "remove"])
 p.add_argument("--dir", required=True); p.add_argument("--id", required=True)
 p.add_argument("--name", default=""); p.add_argument("--category", default="Custom")
+p.add_argument("--slot-key", default="url-4K-SDR-240FPS", help="the url-* key Apple's assets use in entries.json")
 a = p.parse_args()
 a.id = a.id.upper()
+if not a.slot_key.startswith("url-"): p.error("--slot-key must look like url-4K-SDR-240FPS")
 if a.cmd2 == "add" and not a.name: p.error("--name is required for add")
 (entries if a.kind == "entries" else sql)(a)

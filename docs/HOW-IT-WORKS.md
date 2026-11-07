@@ -37,3 +37,9 @@ Pitfalls that cost time (all handled in `aerialize.swift`):
 (Core Data: `ZASSET`, `ZCATEGORY`, `ZSUBCATEGORY`, join tables `Z_1CATEGORIES`/`Z_1SUBCATEGORIES`, and `Z_PRIMARYKEY` bookkeeping; the asset's
 `ZREMOTEURLS` / `ZPOINTSOFINTEREST` are NSKeyedArchiver blobs). The slot file is `Customer/4KSDR240FPS/<asset-id>.mov` and `file://` URLs must be
 percent-encoded (`Application%20Support`). `catalog.py` generates both edits; the daemon runs as root, so the database edit needs sudo.
+
+## Generalisation notes
+- Slot folder name follows a rule seen in the catalog: `url-4K-SDR-240FPS` → `Customer/4KSDR240FPS/`. Only that one key exists on macOS 15.8.2; older/newer systems may differ.
+- Frame timing generalises as Apple's: `timescale = fps × 1000`, 1000 ticks per frame (239.76 → 239760, 60 → 60000). Other fps values were verified for encode/verify consistency only, not for playback in the wallpaper.
+- Scaling goes through `AVAssetReaderVideoCompositionOutput` (a plain track output crashes with width/height settings). Rotated sources are not handled.
+- Failure modes are explicit: no temporal layers from the encoder → `encode` exits non-zero; `verify` fails any file lacking them.
