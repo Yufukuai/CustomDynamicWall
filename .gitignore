@@ -2,3 +2,4 @@ build/
 backups/
 *.mov
 *.jpg
+.DS_Store

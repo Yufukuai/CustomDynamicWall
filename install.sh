@@ -6,6 +6,8 @@
 #
 # Options (install):  --category NAME (Custom)   --mbps N (30)   --seconds N (encode only the first N s)   --id UUID
 #                     --fps F (239.76)  --size WxH (3840x2160)  --fit crop|stretch (crop)  --software
+#                     --no-convert  install the file exactly as given; stops with an error if it fails `aerialize verify`
+#                                   (without it, a file that already passes verification is also used as is)
 #                     --slot-key url-4K-SDR-240FPS   (auto-detected from entries.json; only that slot is verified)
 #
 # Steps: (1) make the video Aerial-compatible if it isn't already, (2) back up entries.json + Aerial.sqlite to
@@ -25,12 +27,13 @@ cmd="${1:-}"; shift || true
 [ "$cmd" = install ] || [ "$cmd" = remove ] || die "usage: $0 install <video> \"<Name>\" [options] | remove <UUID>"
 if [ "$cmd" = install ]; then VIDEO="${1:-}"; NAME="${2:-}"; shift 2 || die "install needs <video> \"<Name>\""; [ -f "$VIDEO" ] || die "no such file: $VIDEO"
 else ID="${1:-}"; shift || die "remove needs <UUID>"; fi
-CATEGORY=Custom; MBPS=30; SECONDS_LIMIT=""; SLOT_KEY=""; ENC=(); VER=()
+CATEGORY=Custom; MBPS=30; SECONDS_LIMIT=""; SLOT_KEY=""; NO_CONVERT=""; ENC=(); VER=()
 while [ $# -gt 0 ]; do case "$1" in
   --category) CATEGORY="$2"; shift 2;; --id) ID="$2"; shift 2;; --mbps) MBPS="$2"; shift 2;; --seconds) SECONDS_LIMIT="$2"; shift 2;;
   --slot-key) SLOT_KEY="$2"; shift 2;;
   --fps) ENC+=(--fps "$2"); VER+=(--fps "$2"); shift 2;; --size) ENC+=(--size "$2"); VER+=(--size "$2"); shift 2;;
   --fit) ENC+=(--fit "$2"); shift 2;; --software) ENC+=(--software); shift;;
+  --no-convert) NO_CONVERT=1; shift;;
   *) die "unknown option $1";; esac; done
 
 # --- environment: warn rather than refuse; only macOS 15 / Apple Silicon has been tested
@@ -77,7 +80,12 @@ fi
 # --- build the tool, make the video compatible
 command -v swiftc >/dev/null || die "swiftc not found — install Xcode command line tools: xcode-select --install"
 swiftc -O "$HERE/aerialize.swift" -o "$BUILD/aerialize" 2>/dev/null || die "failed to compile aerialize.swift"
-if [ -z "$SECONDS_LIMIT" ] && [ ${#ENC[@]} -eq 0 ] && "$BUILD/aerialize" verify "$VIDEO" >/dev/null 2>&1; then
+if [ -n "$NO_CONVERT" ]; then
+  [ -z "$SECONDS_LIMIT" ] && [ ${#ENC[@]} -eq 0 ] || die "--no-convert cannot be combined with encoding options (--seconds/--fps/--size/--fit/--software)"
+  "$BUILD/aerialize" verify "$VIDEO" ${VER[@]+"${VER[@]}"} | tail -12 || true
+  "$BUILD/aerialize" verify "$VIDEO" ${VER[@]+"${VER[@]}"} >/dev/null 2>&1 || die "$VIDEO does not pass verification, so it was not installed (see FAIL lines above). Re-run without --no-convert to convert it."
+  echo "--no-convert: installing the file as is"; READY="$VIDEO"
+elif [ -z "$SECONDS_LIMIT" ] && [ ${#ENC[@]} -eq 0 ] && "$BUILD/aerialize" verify "$VIDEO" >/dev/null 2>&1; then
   echo "input already passes verification — using it as is"; READY="$VIDEO"
 else
   READY="$BUILD/$ID.mov"; echo "encoding (about 4 min per minute of 4K video on Apple Silicon)…"

@@ -30,6 +30,8 @@ The installer: builds `aerialize`, checks whether your file already qualifies (o
 
 Encoding runs on the Apple Silicon media engine at roughly 60 frames/s for 4K, i.e. about **4 minutes of encoding per minute of video** (measured: 6 min of video ≈ 24 min). Low CPU use is normal — the work isn't on the CPU cores.
 
+`--no-convert` installs a file exactly as given (e.g. one you already encoded, or keep a backup of): it runs `aerialize verify` first and refuses to install a file that fails. Even without the flag, a file that already passes verification is used as is, with no re-encode. Re-run `install.sh install` any time (e.g. after a macOS update) with the saved file.
+
 Options: `--category NAME` (default `Custom`), `--mbps N` (30), `--seconds N` (encode only the first N seconds — good for a quick test), `--id UUID`,
 `--fps F` (239.76), `--size WxH` (3840x2160), `--fit crop|stretch` (crop), `--software` (force the software encoder), `--slot-key url-…` (otherwise auto-detected from `entries.json`).
 
