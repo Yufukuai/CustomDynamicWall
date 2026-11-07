@@ -43,3 +43,13 @@ percent-encoded (`Application%20Support`). `catalog.py` generates both edits; th
 - Frame timing generalises as Apple's: `timescale = fps × 1000`, 1000 ticks per frame (239.76 → 239760, 60 → 60000). Other fps values were verified for encode/verify consistency only, not for playback in the wallpaper.
 - Scaling goes through `AVAssetReaderVideoCompositionOutput` (a plain track output crashes with width/height settings). Rotated sources are not handled.
 - Failure modes are explicit: no temporal layers from the encoder → `encode` exits non-zero; `verify` fails any file lacking them.
+
+## The software encoder, and where the temporal levels live
+- `--software` selects `com.apple.videotoolbox.videoencoder.hevc.vcp` ("Apple HEVC (SW)"). Its supported-property list has **no** temporal-layer keys at all
+  (`NumberOfTemporalLayers` / `BaseLayerFrameRate` exist only on the hardware encoder `…ave.hevc`), so it cannot produce a usable file; `aerialize encode` exits with an error.
+- `HEVCTemporalLevelInfo` is **container-level** metadata: `AVAssetWriter` writes it from the per-sample attachment and `AVAssetReader` reads it back from the file.
+  Test: copying a good file sample-for-sample while deleting the attachment removes the levels from the result even though the HEVC bitstream (with its temporal IDs) is unchanged;
+  setting the attachment on a file that had none makes the levels appear.
+- So tagging an *arbitrary* stream with levels is trivial — but not safe. The player ramps the frame rate by only using samples up to a target level; if the stream was not
+  actually encoded with that temporal structure, dropped frames break the references of the frames that follow. A genuine route for machines without the hardware encoder would be an
+  encoder that really emits temporal sub-layers (e.g. x265's `--temporal-layers`) followed by tagging each sample with its NAL temporal ID. Not implemented; untested.
