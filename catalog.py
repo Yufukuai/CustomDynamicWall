@@ -5,6 +5,8 @@
   catalog.py entries remove --dir DIR --id UUID
   catalog.py sql add        --dir DIR --id UUID --name NAME [--category Custom] > out.sql
   catalog.py sql remove     --dir DIR --id UUID                                  > out.sql
+  catalog.py entries has    --dir DIR --id UUID     -> prints the entry's name, exit 0 if registered else 1
+  catalog.py entries find   --dir DIR --id x --name NAME [--category Custom] -> prints the id of a same-named entry, exit 0/1
 
 DIR is /Library/Application Support/com.apple.idleassetsd. `sql` only prints SQL; install.sh runs it
 (with sudo, after a backup). Nothing here touches the video file itself.
@@ -29,6 +31,14 @@ def entries(a):
     path = a.dir.rstrip("/") + "/Customer/entries.json"
     d = json.load(open(path))
     cat, sub = ids(a)
+    if a.cmd2 == "has":
+        x = next((x for x in d["assets"] if x["id"] == a.id), None)
+        if x: print(x.get("localizedNameKey", ""))
+        sys.exit(0 if x else 1)
+    if a.cmd2 == "find":
+        x = next((x for x in d["assets"] if cat in x.get("categories", []) and x.get("localizedNameKey") == a.name), None)
+        if x: print(x["id"])
+        sys.exit(0 if x else 1)
     # drop any previous registration of this asset
     d["assets"] = [x for x in d["assets"] if x["id"] != a.id]
     for c in d["categories"]:
@@ -104,12 +114,13 @@ def sql(a):
     print("COMMIT;")
 
 p = argparse.ArgumentParser()
-p.add_argument("kind", choices=["entries", "sql"]); p.add_argument("cmd2", choices=["add", "remove"])
+p.add_argument("kind", choices=["entries", "sql"]); p.add_argument("cmd2", choices=["add", "remove", "has", "find"])
 p.add_argument("--dir", required=True); p.add_argument("--id", required=True)
 p.add_argument("--name", default=""); p.add_argument("--category", default="Custom")
 p.add_argument("--slot-key", default="url-4K-SDR-240FPS", help="the url-* key Apple's assets use in entries.json")
 a = p.parse_args()
 a.id = a.id.upper()
 if not a.slot_key.startswith("url-"): p.error("--slot-key must look like url-4K-SDR-240FPS")
-if a.cmd2 == "add" and not a.name: p.error("--name is required for add")
+if a.cmd2 in ("add", "find") and not a.name: p.error("--name is required")
+if a.kind == "sql" and a.cmd2 in ("has", "find"): p.error("has/find are for entries")
 (entries if a.kind == "entries" else sql)(a)

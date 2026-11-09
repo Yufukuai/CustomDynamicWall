@@ -8,6 +8,8 @@
 #                     --fps F (239.76)  --size WxH (3840x2160)  --fit crop|stretch (crop)  --software
 #                     --no-convert  install the file exactly as given; stops with an error if it fails `aerialize verify`
 #                                   (without it, a file that already passes verification is also used as is)
+#                     --replace     update the existing entry of the same name (same id, file replaced) instead of refusing
+#                     --force       skip the duplicate checks and add another entry/copy anyway
 #                     --slot-key url-4K-SDR-240FPS   (auto-detected from entries.json; only that slot is verified)
 #
 # Steps: (1) make the video Aerial-compatible if it isn't already, (2) back up entries.json + Aerial.sqlite to
@@ -27,13 +29,13 @@ cmd="${1:-}"; shift || true
 [ "$cmd" = install ] || [ "$cmd" = remove ] || die "usage: $0 install <video> \"<Name>\" [options] | remove <UUID>"
 if [ "$cmd" = install ]; then VIDEO="${1:-}"; NAME="${2:-}"; shift 2 || die "install needs <video> \"<Name>\""; [ -f "$VIDEO" ] || die "no such file: $VIDEO"
 else ID="${1:-}"; shift || die "remove needs <UUID>"; fi
-CATEGORY=Custom; MBPS=30; SECONDS_LIMIT=""; SLOT_KEY=""; NO_CONVERT=""; ENC=(); VER=()
+CATEGORY=Custom; MBPS=30; SECONDS_LIMIT=""; SLOT_KEY=""; NO_CONVERT=""; FORCE=""; REPLACE=""; ID_GIVEN=""; ENC=(); VER=()
 while [ $# -gt 0 ]; do case "$1" in
-  --category) CATEGORY="$2"; shift 2;; --id) ID="$2"; shift 2;; --mbps) MBPS="$2"; shift 2;; --seconds) SECONDS_LIMIT="$2"; shift 2;;
+  --category) CATEGORY="$2"; shift 2;; --id) ID="$2"; ID_GIVEN=1; shift 2;; --mbps) MBPS="$2"; shift 2;; --seconds) SECONDS_LIMIT="$2"; shift 2;;
   --slot-key) SLOT_KEY="$2"; shift 2;;
   --fps) ENC+=(--fps "$2"); VER+=(--fps "$2"); shift 2;; --size) ENC+=(--size "$2"); VER+=(--size "$2"); shift 2;;
   --fit) ENC+=(--fit "$2"); shift 2;; --software) ENC+=(--software); shift;;
-  --no-convert) NO_CONVERT=1; shift;;
+  --no-convert) NO_CONVERT=1; shift;; --force) FORCE=1; shift;; --replace) REPLACE=1; shift;;
   *) die "unknown option $1";; esac; done
 
 # --- environment: warn rather than refuse; only macOS 15 / Apple Silicon has been tested
@@ -69,6 +71,14 @@ backup() {
 restart() { [ -n "${NO_SUDO:-}" ] || { priv killall idleassetsd WallpaperVideoExtension 2>/dev/null || true; }; }
 catalog() { python3 -I "$HERE/catalog.py" "$@" --dir "$IDLE_DIR" --id "$ID" --category "$CATEGORY" --slot-key "$SLOT_KEY"; }
 
+# --- duplicate check 1 (before the slow encode): is an entry with this name already registered?
+if [ "$cmd" = install ] && [ -z "$ID_GIVEN" ] && [ -z "$FORCE" ]; then
+  if EXISTING="$(catalog entries find --name "$NAME" 2>/dev/null)"; then
+    if [ -n "$REPLACE" ]; then ID="$EXISTING"; echo "--replace: updating existing entry \"$NAME\" ($ID)"
+    else die "an entry named \"$NAME\" already exists in category $CATEGORY ($EXISTING). Use --replace to update it, --force to add another one, or './install.sh remove $EXISTING' first."; fi
+  fi
+fi
+
 if [ "$cmd" = remove ]; then
   backup
   catalog entries remove | cat; catalog sql remove > "$BUILD/remove.sql"
@@ -94,11 +104,29 @@ else
 fi
 "$BUILD/aerialize" thumb "$READY" "$BUILD/$ID.jpg"
 
+# --- duplicate check 2: is a byte-identical file already in the slot (e.g. a leftover after a macOS update)?
+SKIP_COPY=""
+if [ -z "$FORCE" ]; then
+  SIZE="$(stat -f%z "$READY")"; HASH=""; DUP_ID=""
+  for f in "$IDLE_DIR/Customer/$SLOT_DIR"/*.mov; do
+    [ -e "$f" ] && [ "$(stat -f%z "$f")" = "$SIZE" ] || continue
+    [ -n "$HASH" ] || HASH="$(shasum -a 256 "$READY" | cut -d' ' -f1)"
+    if [ "$(shasum -a 256 "$f" | cut -d' ' -f1)" = "$HASH" ]; then DUP_ID="$(basename "$f" .mov | tr a-z A-Z)"; break; fi
+  done
+  if [ -n "$DUP_ID" ]; then
+    if REG="$(python3 -I "$HERE/catalog.py" entries has --dir "$IDLE_DIR" --id "$DUP_ID" --slot-key "$SLOT_KEY" 2>/dev/null)"; then
+      echo "already installed: this exact video is in the wallpaper storage as \"$REG\" ($DUP_ID). Nothing to do. (--force adds another copy.)"; exit 0
+    fi
+    echo "found an identical video in the slot ($DUP_ID) with no catalog entry (leftover after an update?) — re-registering it instead of copying a duplicate"
+    ID="$DUP_ID"; SKIP_COPY=1
+  fi
+fi
+
 # --- install
 backup
 catalog sql add --name "$NAME" > "$BUILD/add.sql"
 priv mkdir -p "$IDLE_DIR/Customer/$SLOT_DIR" "$IDLE_DIR/snapshots"
-priv cp "$READY" "$IDLE_DIR/Customer/$SLOT_DIR/$ID.mov"
+[ -n "$SKIP_COPY" ] || priv cp "$READY" "$IDLE_DIR/Customer/$SLOT_DIR/$ID.mov"
 priv cp "$BUILD/$ID.jpg" "$IDLE_DIR/snapshots/asset-preview-$ID.jpg"
 if [ -n "${NO_SUDO:-}" ]; then catalog entries add --name "$NAME"; else
   # entries.json is root-owned on a stock system; run the editor as root, in isolated (-I) mode
