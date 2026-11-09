@@ -32,6 +32,8 @@ Encoding runs on the Apple Silicon media engine at roughly 60 frames/s for 4K, i
 
 `--no-convert` installs a file exactly as given (e.g. one you already encoded, or keep a backup of): it runs `aerialize verify` first and refuses to install a file that fails. Even without the flag, a file that already passes verification is used as is, with no re-encode. Re-run `install.sh install` any time (e.g. after a macOS update) with the saved file.
 
+**No duplicates:** the installer never silently adds a second copy. Before encoding it refuses if an entry with the same name already exists in the category (`--replace` updates that entry in place, keeping its id; `--force` adds another one anyway). After the file is ready it compares its SHA-256 with the videos already in the slot: an identical file that is registered → "already installed", nothing is touched; an identical file with *no* catalog entry (e.g. the catalog was reset by a macOS update) → it is re-registered instead of copying 1.4 GB again.
+
 Options: `--category NAME` (default `Custom`), `--mbps N` (30), `--seconds N` (encode only the first N seconds — good for a quick test), `--id UUID`,
 `--fps F` (239.76), `--size WxH` (3840x2160), `--fit crop|stretch` (crop), `--software` (force the software encoder), `--slot-key url-…` (otherwise auto-detected from `entries.json`).
 
